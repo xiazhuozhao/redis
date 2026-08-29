@@ -4344,12 +4344,17 @@ void preprocessCommand(client *c, pendingCommand *pcmd) {
     if (pcmd->argc == 0)
         return;
 
-    /* Reuse either of the two preceding commands. Two entries cover common
-     * alternating pipelines (for example SET/GET) without another
-     * case-insensitive dictionary hash and lookup. */
+    /* Reuse either of the two preceding commands from the pending list or the
+     * per-client cache. Two entries cover alternating SET/GET traffic without
+     * another case-insensitive dictionary hash and lookup. */
     struct redisCommand *last_cmd = pcmd->prev ? pcmd->prev->cmd : c->lastcmd;
-    struct redisCommand *second_last_cmd =
-        (pcmd->prev && pcmd->prev->prev) ? pcmd->prev->prev->cmd : NULL;
+    struct redisCommand *second_last_cmd;
+    if (!pcmd->prev)
+        second_last_cmd = c->lastcmd2;
+    else if (pcmd->prev->prev)
+        second_last_cmd = pcmd->prev->prev->cmd;
+    else
+        second_last_cmd = c->lastcmd;
 
     if (isCommandReusable(last_cmd, pcmd->argv[0])) {
         pcmd->cmd = last_cmd;
@@ -4437,6 +4442,8 @@ int processCommand(client *c) {
         if (!cmd) {
             if (isCommandReusable(c->lastcmd, c->argv[0]))
                 cmd = c->lastcmd;
+            else if (isCommandReusable(c->lastcmd2, c->argv[0]))
+                cmd = c->lastcmd2;
             else
                 cmd = lookupCommand(c->argv, c->argc);
         }
@@ -4455,7 +4462,9 @@ int processCommand(client *c) {
             cmd = NULL;
         }
 
-        c->cmd = c->lastcmd = c->realcmd = cmd;
+        c->cmd = c->realcmd = cmd;
+        if (cmd != c->lastcmd) c->lastcmd2 = c->lastcmd;
+        c->lastcmd = cmd;
         sds err;
         if (!commandCheckExistence(c, &err)) {
             rejectCommandSds(c, err);

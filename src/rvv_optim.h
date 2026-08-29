@@ -11,7 +11,7 @@
 #include <string.h>
 
 #ifdef REDIS_RVV
-#define REDIS_RVV_BYTE_THRESHOLD 16
+#define REDIS_RVV_BYTE_THRESHOLD 64
 
 void *redisRvvMemcpyImpl(void *dst, const void *src, size_t len);
 void *redisRvvMemsetImpl(void *dst, int value, size_t len);

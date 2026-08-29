@@ -1502,6 +1502,7 @@ typedef struct client {
     int io_deferred_objects_num;   /* Number of objects in io_deferred_objects */
     int io_deferred_objects_size;  /* Allocated size of io_deferred_objects */
     struct redisCommand *cmd, *lastcmd;  /* Last command executed. */
+    struct redisCommand *lastcmd2; /* Second entry in the per-client command lookup cache. */
     struct redisCommand *lookedcmd; /* Command looked up in lookahead. */
     struct redisCommand *realcmd; /* The original command that was executed by the client,
                                      Used to update error stats in case the c->cmd was modified

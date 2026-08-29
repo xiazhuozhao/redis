@@ -10,7 +10,6 @@ target_host=${TARGET_HOST:-muse-pi-pro}
 target_root=${TARGET_ROOT:-/home/xzz/rvspoc-S2603}
 target_port=${TARGET_PORT:-11308}
 sysroot=${RISCV_SYSROOT:-/home/xzz2/1/tools/jammy-cross/root}
-gcc11=${RISCV_GCC11:-$sysroot/usr/bin/riscv64-linux-gnu-gcc-11}
 rvv_gcc=${RVV_GCC:-/home/xzz2/1/tools/riscv-gnu/bin/riscv64-unknown-linux-gnu-gcc}
 profile_dir=${PROFILE_DIR:-/tmp/redis-rvv-pgo-$$}
 profile_name=$(basename "$profile_dir")
@@ -25,24 +24,21 @@ if [[ -e "$profile_dir" || -e "$profile_archive" ]]; then
     exit 2
 fi
 
-host_lib=$sysroot/usr/lib/x86_64-linux-gnu
 target_lib=$sysroot/usr/riscv64-linux-gnu/lib
-gcc11_lib=$sysroot/usr/lib/gcc-cross/riscv64-linux-gnu/11
-target_bin=$sysroot/usr/riscv64-linux-gnu/bin
 
-scalar_cc="env LD_LIBRARY_PATH=$host_lib $gcc11 --sysroot=$sysroot -isystem $sysroot/usr/riscv64-linux-gnu/include -B$gcc11_lib/ -B$target_bin/ -L$target_lib"
-vector_cc="$rvv_gcc --sysroot=$sysroot -isystem $sysroot/usr/riscv64-linux-gnu/include -B$target_lib/ -L$target_lib"
+scalar_cc="$rvv_gcc --sysroot=$sysroot -isystem $sysroot/usr/riscv64-linux-gnu/include -B$target_lib/ -L$target_lib"
+vector_cc=$scalar_cc
 make_args=(
     -C "$repo/src" -j"$jobs" BUILD_RVV=yes MALLOC=libc BUILD_TLS=no
     "CC=$scalar_cc" "RVV_CC=$vector_cc"
 )
 
-generate_opt="-O3 -march=rv64gc -mabi=lp64d -fno-tree-vectorize -fno-pie -no-pie -fprofile-generate=$profile_dir -fprofile-prefix-path=$repo -fprofile-update=atomic"
-use_opt="-O3 -march=rv64gc -mabi=lp64d -fno-tree-vectorize -fprofile-use=$profile_dir -fprofile-prefix-path=$repo -fprofile-correction -Wno-missing-profile -flto=auto -fomit-frame-pointer -fno-semantic-interposition -fno-plt -fno-pie -no-pie"
+generate_opt="-O3 -march=rv64gc -mabi=lp64d -mtune=spacemit-x60 -fno-tree-vectorize -fno-pie -no-pie -fprofile-generate=$profile_dir -fprofile-prefix-path=$repo -fprofile-update=atomic"
+use_opt="-O3 -march=rv64gc -mabi=lp64d -mtune=spacemit-x60 -fno-tree-vectorize -fprofile-use=$profile_dir -fprofile-prefix-path=$repo -fprofile-correction -Wno-missing-profile -flto=auto -fomit-frame-pointer -fno-semantic-interposition -fno-plt -fno-pie -no-pie"
 
 make -C "$repo/src" clean >/dev/null
 make "${make_args[@]}" \
-    "RVV_CFLAGS=-fno-profile-generate -fno-pie -g0 -march=rv64gcv -mabi=lp64d" \
+    "RVV_CFLAGS=-DREDIS_GCOV_COMPAT -fno-profile-generate -fno-pie -g0 -march=rv64gcv -mabi=lp64d -mtune=spacemit-x60" \
     "OPT=$generate_opt" redis-server
 
 ssh "$target_host" mkdir -p "$target_root/bin-rvv" "$target_root/run"
@@ -87,6 +83,18 @@ taskset -c 0-3 "$memtier" --server 127.0.0.1 --port "$port" --protocol redis \
     --threads 2 --clients 25 --pipeline 16 --ratio 1:1 --data-size 32 \
     --key-minimum 1 --key-maximum 10000 --key-pattern R:R --test-time 25 \
     --hide-histogram >/dev/null
+# Train the separate-request alternating SET/GET path as well. This exercises
+# the per-client two-entry command cache used when no parsed pipeline exists.
+taskset -c 0-3 "$memtier" --server 127.0.0.1 --port "$port" --protocol redis \
+    --threads 1 --clients 16 --pipeline 1 --ratio 1:1 --data-size 32 \
+    --key-minimum 1 --key-maximum 10000 --key-pattern R:R --test-time 12 \
+    --hide-histogram >/dev/null
+# Populate the complete large-value training range so PGO observes value-copy
+# and hit lookup paths instead of specializing for misses.
+taskset -c 0-3 "$memtier" --server 127.0.0.1 --port "$port" --protocol redis \
+    --threads 2 --clients 25 --pipeline 16 --ratio 1:0 --data-size 4096 \
+    --key-minimum 1 --key-maximum 100000 --key-pattern P:P --requests 2000 \
+    --hide-histogram >/dev/null
 taskset -c 0-3 "$memtier" --server 127.0.0.1 --port "$port" --protocol redis \
     --threads 2 --clients 25 --pipeline 4 --ratio 1:1 --data-size 4096 \
     --key-minimum 1 --key-maximum 100000 --key-pattern R:R --test-time 8 \
@@ -103,7 +111,7 @@ test "$(find "$profile_dir" -type f | wc -l)" -ge 100
 
 make -C "$repo/src" clean >/dev/null
 make "${make_args[@]}" \
-    "RVV_CFLAGS=-fno-profile-use -fno-lto -fno-pie -g0 -march=rv64gcv -mabi=lp64d" \
+    "RVV_CFLAGS=-fno-profile-use -fno-lto -fno-pie -g0 -march=rv64gcv -mabi=lp64d -mtune=spacemit-x60" \
     "OPT=$use_opt" redis-server
 
 if [[ ${DEPLOY_FINAL:-0} == 1 ]]; then

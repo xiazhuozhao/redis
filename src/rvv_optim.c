@@ -6,6 +6,17 @@
 #include <riscv_vector.h>
 #include <stdint.h>
 
+/* GCC 16's libgcov uses the C23 entry point, while the target's glibc predates
+ * it. Profile data only contains decimal counters, for which strtol has the
+ * same behavior. This shim is enabled solely in the instrumented training
+ * binary and is absent from the final PGO build. */
+#ifdef REDIS_GCOV_COMPAT
+#include <stdlib.h>
+long __isoc23_strtol(const char *nptr, char **endptr, int base) {
+    return strtol(nptr, endptr, base);
+}
+#endif
+
 size_t redisRvvVectorBytes(void) {
     return __riscv_vsetvlmax_e8m1();
 }

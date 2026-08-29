@@ -98,6 +98,14 @@ def main():
             assert reader.read() == (b"+", b"OK")
             assert reader.read() == (b"$", f"data-{i}".encode())
 
+        # Exercise the two-entry command cache across separate socket reads,
+        # rather than only within a parsed pipeline.
+        for i in range(32):
+            sock.sendall(command("sEt", f"rvv:serial:{i}", f"serial-{i}"))
+            assert reader.read() == (b"+", b"OK")
+            sock.sendall(command("GeT", f"rvv:serial:{i}"))
+            assert reader.read() == (b"$", f"serial-{i}".encode())
+
         sock.sendall(command("GET", "rvv:missing"))
         assert reader.read() == (b"$", None)
         sock.sendall(command("NO-SUCH-RVV-COMMAND"))
