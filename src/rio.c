@@ -82,6 +82,8 @@ static const rio rioBufferIO = {
     0,              /* current checksum */
     0,              /* flags */
     0,              /* bytes read or written */
+    0,              /* checksum bytes buffered */
+    {0},            /* checksum buffer */
     0,              /* read/write chunk size */
     { { NULL, 0 } } /* union for io-specific vars */
 };
@@ -179,6 +181,8 @@ static const rio rioFileIO = {
     0,              /* current checksum */
     0,              /* flags */
     0,              /* bytes read or written */
+    0,              /* checksum bytes buffered */
+    {0},            /* checksum buffer */
     0,              /* read/write chunk size */
     { { NULL, 0 } } /* union for io-specific vars */
 };
@@ -281,6 +285,8 @@ static const rio rioConnIO = {
     0,              /* current checksum */
     0,              /* flags */
     0,              /* bytes read or written */
+    0,              /* checksum bytes buffered */
+    {0},            /* checksum buffer */
     0,              /* read/write chunk size */
     { { NULL, 0 } } /* union for io-specific vars */
 };
@@ -400,6 +406,8 @@ static const rio rioFdIO = {
     0,              /* current checksum */
     0,              /* flags */
     0,              /* bytes read or written */
+    0,              /* checksum bytes buffered */
+    {0},            /* checksum buffer */
     0,              /* read/write chunk size */
     { { NULL, 0 } } /* union for io-specific vars */
 };
@@ -529,6 +537,8 @@ static const rio rioConnsetIO = {
         0,               /* current checksum */
         0,               /* flags */
         0,               /* bytes read or written */
+        0,               /* checksum bytes buffered */
+        {0},             /* checksum buffer */
         0,               /* read/write chunk size */
         { { NULL, 0 } }  /* union for io-specific vars */
 };
@@ -556,6 +566,33 @@ void rioFreeConnset(rio *r) {
  * computation is needed. */
 void rioGenericUpdateChecksum(rio *r, const void *buf, size_t len) {
     r->cksum = crc64(r->cksum,buf,len);
+}
+
+/* RDB encoding emits several tiny fields per object. Feeding each one to the
+ * slice-by-8 CRC separately loses most of its throughput, so coalesce adjacent
+ * fields before updating the checksum. */
+void rioBufferedUpdateChecksum(rio *r, const void *buf, size_t len) {
+    const unsigned char *p = buf;
+
+    while (len) {
+        size_t room = RIO_CKSUM_BUF_SIZE - r->cksum_buffered;
+        size_t n = len < room ? len : room;
+        redisRvvMemcpy(r->cksum_buffer + r->cksum_buffered, p, n);
+        r->cksum_buffered += n;
+        p += n;
+        len -= n;
+        if (r->cksum_buffered == RIO_CKSUM_BUF_SIZE) {
+            r->cksum = crc64(r->cksum, r->cksum_buffer, RIO_CKSUM_BUF_SIZE);
+            r->cksum_buffered = 0;
+        }
+    }
+}
+
+void rioFlushChecksum(rio *r) {
+    if (r->cksum_buffered) {
+        r->cksum = crc64(r->cksum, r->cksum_buffer, r->cksum_buffered);
+        r->cksum_buffered = 0;
+    }
 }
 
 /* Set the file-based rio object to auto-fsync every 'bytes' file written.

@@ -29,6 +29,10 @@
 #define RIO_TYPE_CONN (1<<2)
 #define RIO_TYPE_FD (1<<3)
 
+/* Checksum batching keeps the many small RDB fields from each invoking the
+ * CRC implementation separately. */
+#define RIO_CKSUM_BUF_SIZE 1024
+
 struct _rio {
     /* Backend functions.
      * Since this functions do not tolerate short writes or reads the return
@@ -49,6 +53,10 @@ struct _rio {
 
     /* number of bytes read or written */
     size_t processed_bytes;
+
+    /* Pending bytes for rioBufferedUpdateChecksum(). */
+    size_t cksum_buffered;
+    unsigned char cksum_buffer[RIO_CKSUM_BUF_SIZE];
 
     /* maximum single read or write chunk size */
     size_t max_processing_chunk;
@@ -182,6 +190,8 @@ struct redisObject;
 int rioWriteBulkObject(rio *r, struct redisObject *obj);
 
 void rioGenericUpdateChecksum(rio *r, const void *buf, size_t len);
+void rioBufferedUpdateChecksum(rio *r, const void *buf, size_t len);
+void rioFlushChecksum(rio *r);
 void rioSetAutoSync(rio *r, off_t bytes);
 void rioSetReclaimCache(rio *r, int enabled); 
 uint8_t rioCheckType(rio *r);
