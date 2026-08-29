@@ -13,6 +13,7 @@
  */
 
 #include "server.h"
+#include "rvv_optim.h"
 #include "monotonic.h"
 #include "cluster.h"
 #include "cluster_slot_stats.h"
@@ -336,7 +337,7 @@ int dictSdsCompareKV(dictCmpCache *cache, const void *sdsKey1, const void *sdsKe
     size_t l1 = cache->data[0].sz;
     size_t l2 = sdslen((sds)sdsKey2);
     if (l1 != l2) return 0;
-    return memcmp(sdsKey1, sdsKey2, l1) == 0;
+    return redisRvvMemcmp(sdsKey1, sdsKey2, l1) == 0;
 }
 
 static void dictDestructorKV(dict *d, void *key) {
@@ -371,7 +372,7 @@ int dictSdsKeyCompare(dictCmpCache *cache, const void *key1,
     l1 = sdslen((sds)key1);
     l2 = sdslen((sds)key2);
     if (l1 != l2) return 0;
-    return memcmp(key1, key2, l1) == 0;
+    return redisRvvMemcmp(key1, key2, l1) == 0;
 }
 
 /* A case insensitive version used for the command lookup table and other

@@ -8,6 +8,7 @@
  */
 
 #include "server.h"
+#include "rvv_optim.h"
 #include "cluster.h"
 #include "xxhash.h"
 #include <float.h>
@@ -637,7 +638,7 @@ void setrangeCommand(client *c) {
         kv->ptr = sdsgrowzero(kv->ptr,offset+value_len);
         if (server.memory_tracking_enabled)
             updateSlotAllocSize(c->db, getKeySlot(c->argv[1]->ptr), kv, oldsize, kvobjAllocSize(kv));
-        memcpy((char*)kv->ptr+offset,value,value_len);
+        redisRvvMemcpy((char*)kv->ptr+offset,value,value_len);
         keyModified(c,c->db,c->argv[1],kv,1);
         notifyKeyspaceEvent(NOTIFY_STRING,
             "setrange",c->argv[1],c->db->id);
@@ -1680,4 +1681,3 @@ void digestCommand(client *c) {
 
     addReplyBulkSds(c, stringDigest(o));
 }
-

@@ -41,6 +41,7 @@
 #include "crc64.h"
 #include "config.h"
 #include "server.h"
+#include "rvv_optim.h"
 
 /* ------------------------- Buffer I/O implementation ----------------------- */
 
@@ -55,7 +56,7 @@ static size_t rioBufferWrite(rio *r, const void *buf, size_t len) {
 static size_t rioBufferRead(rio *r, void *buf, size_t len) {
     if (sdslen(r->io.buffer.ptr)-r->io.buffer.pos < len)
         return 0; /* not enough buffer to return len bytes. */
-    memcpy(buf,r->io.buffer.ptr+r->io.buffer.pos,len);
+    redisRvvMemcpy(buf,r->io.buffer.ptr+r->io.buffer.pos,len);
     r->io.buffer.pos += len;
     return 1;
 }
@@ -252,7 +253,7 @@ static size_t rioConnRead(rio *r, void *buf, size_t len) {
         sdsIncrLen(r->io.conn.buf, retval);
     }
 
-    memcpy(buf, (char*)r->io.conn.buf + r->io.conn.pos, len);
+    redisRvvMemcpy(buf, (char*)r->io.conn.buf + r->io.conn.pos, len);
     r->io.conn.read_so_far += len;
     r->io.conn.pos += len;
     return len;

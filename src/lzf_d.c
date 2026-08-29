@@ -35,6 +35,7 @@
  */
 
 #include "lzfP.h"
+#include "rvv_optim.h"
 
 #if AVOID_ERRNO
 # define SET_ERRNO(n)
@@ -155,7 +156,7 @@ lzf_decompress (const void *const in_data,  size_t in_len,
                 if (op >= ref + len)
                   {
                     /* disjunct areas */
-                    memcpy (op, ref, len);
+                    redisRvvMemcpy (op, ref, len);
                     op += len;
                   }
                 else

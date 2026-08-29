@@ -35,6 +35,7 @@
  */
 
 #include "lzfP.h"
+#include "rvv_optim.h"
 
 #define HSIZE (1 << (HLOG))
 
@@ -148,7 +149,7 @@ lzf_compress (const void *const in_data, size_t in_len,
     return 0;
 
 #if INIT_HTAB
-  memset (htab, 0, sizeof (htab));
+  redisRvvMemset (htab, 0, sizeof (htab));
 #endif
 
   lit = 0; op++; /* start run */
@@ -189,37 +190,9 @@ lzf_compress (const void *const in_data, size_t in_len,
           op [- lit - 1] = lit - 1; /* stop run */
           op -= !lit; /* undo run if length is zero */
 
-          for (;;)
-            {
-              if (expect_true (maxlen > 16))
-                {
-                  len++; if (ref [len] != ip [len]) break;
-                  len++; if (ref [len] != ip [len]) break;
-                  len++; if (ref [len] != ip [len]) break;
-                  len++; if (ref [len] != ip [len]) break;
-
-                  len++; if (ref [len] != ip [len]) break;
-                  len++; if (ref [len] != ip [len]) break;
-                  len++; if (ref [len] != ip [len]) break;
-                  len++; if (ref [len] != ip [len]) break;
-
-                  len++; if (ref [len] != ip [len]) break;
-                  len++; if (ref [len] != ip [len]) break;
-                  len++; if (ref [len] != ip [len]) break;
-                  len++; if (ref [len] != ip [len]) break;
-
-                  len++; if (ref [len] != ip [len]) break;
-                  len++; if (ref [len] != ip [len]) break;
-                  len++; if (ref [len] != ip [len]) break;
-                  len++; if (ref [len] != ip [len]) break;
-                }
-
-              do
-                len++;
-              while (len < maxlen && ref[len] == ip[len]);
-
-              break;
-            }
+          /* Bytes 0..2 already matched. Find the first different byte in
+           * parallel while preserving the exact LZF match-length rules. */
+          len = maxlen > 3 ? 3 + redisRvvCommonPrefixWide(ref + 3, ip + 3, maxlen - 3) : 3;
 
           len -= 2; /* len is now #octets - 1 */
           ip++;
@@ -306,4 +279,3 @@ lzf_compress (const void *const in_data, size_t in_len,
 
   return op - (u8 *)out_data;
 }
-

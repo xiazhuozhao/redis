@@ -20,6 +20,7 @@
 #include "sds.h"
 #include "sdsalloc.h"
 #include "util.h"
+#include "rvv_optim.h"
 
 const char *SDS_NOINIT = "SDS_NOINIT";
 
@@ -184,9 +185,9 @@ sds sdsnewplacement(char *buf, size_t bufsize, char type, const char *init, size
     if (init == SDS_NOINIT)
         init = NULL;
     else if (!init)
-        memset(s, 0, initlen);
+        redisRvvMemset(s, 0, initlen);
     else if (initlen) 
-        memcpy(s, init, initlen);
+        redisRvvMemcpy(s, init, initlen);
 
     s[initlen] = '\0';
     return s;
@@ -324,7 +325,7 @@ sds _sdsMakeRoomFor(sds s, size_t addlen, int greedy) {
         newsh = s_malloc_usable(hdrlen + newlen + 1, &bufsize);
         if (newsh == NULL) return NULL;
         adjustTypeIfNeeded(&type, &hdrlen, bufsize);
-        memcpy((char*)newsh+hdrlen, s, len+1);
+        redisRvvMemcpy((char*)newsh+hdrlen, s, len+1);
         s_free(sh);
         s = (char*)newsh+hdrlen;
         s[-1] = type;
@@ -426,7 +427,7 @@ sds sdsResize(sds s, size_t size, int would_regrow) {
         newsh = s_malloc_usable(newlen, &bufsize);
         if (newsh == NULL) return NULL;
         adjustTypeIfNeeded(&type, &hdrlen, bufsize);
-        memcpy((char *)newsh + hdrlen, s, len + 1);
+        redisRvvMemcpy((char *)newsh + hdrlen, s, len + 1);
         s_free(sh);
         s = (char *)newsh + hdrlen;
         s[-1] = type;
@@ -521,7 +522,7 @@ sds sdsgrowzero(sds s, size_t len) {
     if (s == NULL) return NULL;
 
     /* Make sure added region doesn't contain garbage */
-    memset(s+curlen,0,(len-curlen+1)); /* also set trailing \0 byte */
+    redisRvvMemset(s+curlen,0,(len-curlen+1)); /* also set trailing \0 byte */
     sdssetlen(s, len);
     return s;
 }
@@ -536,7 +537,7 @@ sds sdscatlen(sds s, const void *t, size_t len) {
 
     s = sdsMakeRoomFor(s,len);
     if (s == NULL) return NULL;
-    memcpy(s+curlen, t, len);
+    redisRvvMemcpy(s+curlen, t, len);
     sdssetlen(s, curlen+len);
     s[curlen+len] = '\0';
     return s;
@@ -565,7 +566,7 @@ sds sdscpylen(sds s, const char *t, size_t len) {
         s = sdsMakeRoomFor(s,len-sdslen(s));
         if (s == NULL) return NULL;
     }
-    memcpy(s, t, len);
+    redisRvvMemcpy(s, t, len);
     s[len] = '\0';
     sdssetlen(s, len);
     return s;
@@ -708,7 +709,7 @@ sds sdscatfmt(sds s, char const *fmt, ...) {
                 if (sdsavail(s) < l) {
                     s = sdsMakeRoomFor(s,l);
                 }
-                memcpy(s+i,str,l);
+                redisRvvMemcpy(s+i,str,l);
                 sdsinclen(s,l);
                 i += l;
                 break;
@@ -724,7 +725,7 @@ sds sdscatfmt(sds s, char const *fmt, ...) {
                     if (sdsavail(s) < l) {
                         s = sdsMakeRoomFor(s,l);
                     }
-                    memcpy(s+i,buf,l);
+                    redisRvvMemcpy(s+i,buf,l);
                     sdsinclen(s,l);
                     i += l;
                 }
@@ -741,7 +742,7 @@ sds sdscatfmt(sds s, char const *fmt, ...) {
                     if (sdsavail(s) < l) {
                         s = sdsMakeRoomFor(s,l);
                     }
-                    memcpy(s+i,buf,l);
+                    redisRvvMemcpy(s+i,buf,l);
                     sdsinclen(s,l);
                     i += l;
                 }
@@ -874,7 +875,7 @@ int sdscmp(const sds s1, const sds s2) {
     l1 = sdslen(s1);
     l2 = sdslen(s2);
     minlen = (l1 < l2) ? l1 : l2;
-    cmp = memcmp(s1,s2,minlen);
+    cmp = redisRvvMemcmp(s1,s2,minlen);
     if (cmp == 0) return l1>l2? 1: (l1<l2? -1: 0);
     return cmp;
 }
@@ -918,7 +919,7 @@ sds *sdssplitlen(const char *s, ssize_t len, const char *sep, int seplen, int *c
             tokens = newtokens;
         }
         /* search the separator */
-        if ((seplen == 1 && *(s+j) == sep[0]) || (memcmp(s+j,sep,seplen) == 0)) {
+        if ((seplen == 1 && *(s+j) == sep[0]) || (redisRvvMemcmp(s+j,sep,seplen) == 0)) {
             tokens[elements] = sdsnewlen(s+start,j-start);
             if (tokens[elements] == NULL) goto cleanup;
             elements++;

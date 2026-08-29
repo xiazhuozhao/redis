@@ -23,6 +23,7 @@
 #include "bio.h"
 #include "cluster_asm.h"
 #include "keymeta.h"
+#include "rvv_optim.h"
 
 #include <math.h>
 #include <fcntl.h>
@@ -324,7 +325,7 @@ void *rdbLoadIntegerObject(rio *rdb, int enctype, int flags, size_t *lenptr, siz
             if (usable) *usable = sdsAllocSize(p);
         } 
         
-        memcpy(p,buf,len);
+        redisRvvMemcpy(p,buf,len);
         return p;
     } else if (encode) {
         return createStringObjectFromLongLongForValue(val);
@@ -4080,7 +4081,7 @@ int rdbLoadRioWithLoadingCtx(rio *rdb, int rdbflags, rdbSaveInfo *rsi, rdbLoadin
     rdb->max_processing_chunk = server.loading_process_events_interval_bytes;
     if (rioRead(rdb,buf,9) == 0) goto eoferr;
     buf[9] = '\0';
-    if (memcmp(buf,"REDIS",5) != 0) {
+    if (redisRvvMemcmp(buf,"REDIS",5) != 0) {
         serverLog(LL_WARNING,"Wrong signature trying to load DB from file");
         return C_ERR;
     }
@@ -4196,7 +4197,7 @@ int rdbLoadRioWithLoadingCtx(rio *rdb, int rdbflags, rdbSaveInfo *rsi, rdbLoadin
                 if (rsi) rsi->repl_stream_db = atoi(auxval->ptr);
             } else if (!strcasecmp(auxkey->ptr,"repl-id")) {
                 if (rsi && sdslen(auxval->ptr) == CONFIG_RUN_ID_SIZE) {
-                    memcpy(rsi->repl_id,auxval->ptr,CONFIG_RUN_ID_SIZE+1);
+                    redisRvvMemcpy(rsi->repl_id,auxval->ptr,CONFIG_RUN_ID_SIZE+1);
                     rsi->repl_id_is_set = 1;
                 }
             } else if (!strcasecmp(auxkey->ptr,"repl-offset")) {
