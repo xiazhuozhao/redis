@@ -389,6 +389,7 @@ ifeq ($(BUILD_RVV),yes)
 REDIS_SERVER_OBJ+=rvv_optim.o
 FINAL_CFLAGS+=-DREDIS_RVV
 RVV_CFLAGS?=-march=rv64gcv -mabi=lp64d
+RVV_CC?=$(CC)
 endif
 REDIS_CLI_NAME=redis-cli$(PROG_SUFFIX)
 REDIS_CLI_OBJ=anet.o adlist.o dict.o redis-cli.o zmalloc.o release.o ae.o redisassert.o crcspeed.o crccombine.o crc64.o siphash.o crc16.o monotonic.o cli_common.o mt19937-64.o strl.o cli_commands.o
@@ -485,7 +486,7 @@ DEP = $(REDIS_SERVER_OBJ:%.o=%.d) $(REDIS_VEC_SETS_OBJ:%.o=%.d) $(REDIS_CLI_OBJ:
 	$(REDIS_CC) -MMD -o $@ -c $<
 
 rvv_optim.o: rvv_optim.c .make-prerequisites
-	$(REDIS_CC) $(RVV_CFLAGS) -MMD -o $@ -c $<
+	$(RVV_CC) $(FINAL_CFLAGS) $(RVV_CFLAGS) -MMD -o $@ -c $<
 
 # The following files are checked in and don't normally need to be rebuilt. They
 # are built only if python is available and their prereqs are modified.

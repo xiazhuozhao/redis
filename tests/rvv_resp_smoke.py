@@ -88,6 +88,16 @@ def main():
         for i in range(256):
             assert reader.read() == (b"$", f"value-{i}".encode())
 
+        alternating = b"".join(
+            command("SeT", f"rvv:alternate:{i}", f"data-{i}") +
+            command("gEt", f"rvv:alternate:{i}")
+            for i in range(128)
+        )
+        sock.sendall(alternating)
+        for i in range(128):
+            assert reader.read() == (b"+", b"OK")
+            assert reader.read() == (b"$", f"data-{i}".encode())
+
         sock.sendall(command("GET", "rvv:missing"))
         assert reader.read() == (b"$", None)
         sock.sendall(command("NO-SUCH-RVV-COMMAND"))

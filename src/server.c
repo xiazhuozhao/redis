@@ -4344,14 +4344,20 @@ void preprocessCommand(client *c, pendingCommand *pcmd) {
     if (pcmd->argc == 0)
         return;
 
-    /* Check if we can reuse the previous command instead of looking it up.
-     * The previous command is either the penultimate pending command (if it exists), or c->lastcmd. */
+    /* Reuse either of the two preceding commands. Two entries cover common
+     * alternating pipelines (for example SET/GET) without another
+     * case-insensitive dictionary hash and lookup. */
     struct redisCommand *last_cmd = pcmd->prev ? pcmd->prev->cmd : c->lastcmd;
+    struct redisCommand *second_last_cmd =
+        (pcmd->prev && pcmd->prev->prev) ? pcmd->prev->prev->cmd : NULL;
 
-    if (isCommandReusable(last_cmd, pcmd->argv[0]))
+    if (isCommandReusable(last_cmd, pcmd->argv[0])) {
         pcmd->cmd = last_cmd;
-    else
+    } else if (isCommandReusable(second_last_cmd, pcmd->argv[0])) {
+        pcmd->cmd = second_last_cmd;
+    } else {
         pcmd->cmd = lookupCommand(pcmd->argv, pcmd->argc);
+    }
 
     if (!pcmd->cmd) {
         pcmd->read_error = CLIENT_READ_COMMAND_NOT_FOUND;
