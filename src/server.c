@@ -4078,7 +4078,7 @@ void call(client *c, int flags) {
      * NOTE: even though we update the network bytes during nested calls we
      * only update the duration, since the outer-most call records the whole
      * duration. */
-    if (update_command_stats && !(c->flags & CLIENT_BLOCKED) &&
+    if (server.hotkeys && update_command_stats && !(c->flags & CLIENT_BLOCKED) &&
         (!server.execution_nesting || server.in_exec))
     {
         /* First we need to prepare the hotkeyStats for updates */
@@ -4173,15 +4173,17 @@ void call(client *c, int flags) {
      * of the current command. */
     if (update_command_stats && !(c->flags & CLIENT_BLOCKED)) {
         /* Update the current cmd's keys with the commands output bytes */
-        hotkeyMetrics metrics =
-            {0, c->net_output_bytes_curr_cmd + c->net_input_bytes_curr_cmd};
-        hotkeyStatsUpdateCurrentCmd(server.hotkeys, metrics);
+        if (server.hotkeys) {
+            hotkeyMetrics metrics =
+                {0, c->net_output_bytes_curr_cmd + c->net_input_bytes_curr_cmd};
+            hotkeyStatsUpdateCurrentCmd(server.hotkeys, metrics);
 
-        /* Just like curr cmd setup we only do the cleanup in case we are not in
-         * a nested command. For MULTI/EXEC, we do cleanup for each individual
-         * command. */
-        if (!server.execution_nesting || server.in_exec)
-            hotkeyStatsPostCurrentCmd(server.hotkeys);
+            /* Just like curr cmd setup we only do the cleanup in case we are not in
+             * a nested command. For MULTI/EXEC, we do cleanup for each individual
+             * command. */
+            if (!server.execution_nesting || server.in_exec)
+                hotkeyStatsPostCurrentCmd(server.hotkeys);
+        }
     }
 
     /* Clear the original argv.
