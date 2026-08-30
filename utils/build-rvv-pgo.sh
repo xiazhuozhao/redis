@@ -11,6 +11,7 @@ target_root=${TARGET_ROOT:-/home/xzz/rvspoc-S2603}
 target_port=${TARGET_PORT:-11308}
 sysroot=${RISCV_SYSROOT:-/home/xzz2/1/tools/jammy-cross/root}
 rvv_gcc=${RVV_GCC:-/home/xzz2/1/tools/riscv-gnu/bin/riscv64-unknown-linux-gnu-gcc}
+riscv_tune=${RISCV_TUNE:-generic-ooo}
 profile_dir=${PROFILE_DIR:-/tmp/redis-rvv-pgo-$$}
 profile_name=$(basename "$profile_dir")
 profile_archive=/tmp/$profile_name.tgz
@@ -33,12 +34,12 @@ make_args=(
     "CC=$scalar_cc" "RVV_CC=$vector_cc"
 )
 
-generate_opt="-O3 -march=rv64gc -mabi=lp64d -mtune=spacemit-x60 -fno-tree-vectorize -fno-pie -no-pie -fprofile-generate=$profile_dir -fprofile-prefix-path=$repo -fprofile-update=atomic"
-use_opt="-O3 -march=rv64gc -mabi=lp64d -mtune=spacemit-x60 -fno-tree-vectorize -fprofile-use=$profile_dir -fprofile-prefix-path=$repo -fprofile-correction -Wno-missing-profile -flto=auto -fomit-frame-pointer -fno-semantic-interposition -fno-plt -fno-pie -no-pie"
+generate_opt="-O3 -march=rv64gc -mabi=lp64d -mtune=$riscv_tune -fno-tree-vectorize -fno-pie -no-pie -fprofile-generate=$profile_dir -fprofile-prefix-path=$repo -fprofile-update=atomic"
+use_opt="-O3 -march=rv64gc -mabi=lp64d -mtune=$riscv_tune -fno-tree-vectorize -fprofile-use=$profile_dir -fprofile-prefix-path=$repo -fprofile-correction -Wno-missing-profile -flto=auto -fomit-frame-pointer -fno-semantic-interposition -fno-plt -fno-pie -no-pie"
 
 make -C "$repo/src" clean >/dev/null
 make "${make_args[@]}" \
-    "RVV_CFLAGS=-DREDIS_GCOV_COMPAT -fno-profile-generate -fno-pie -g0 -march=rv64gcv -mabi=lp64d -mtune=spacemit-x60" \
+    "RVV_CFLAGS=-DREDIS_GCOV_COMPAT -fno-profile-generate -fno-pie -g0 -march=rv64gcv -mabi=lp64d -mtune=$riscv_tune" \
     "OPT=$generate_opt" redis-server
 
 ssh "$target_host" mkdir -p "$target_root/bin-rvv" "$target_root/run"
@@ -111,7 +112,7 @@ test "$(find "$profile_dir" -type f | wc -l)" -ge 100
 
 make -C "$repo/src" clean >/dev/null
 make "${make_args[@]}" \
-    "RVV_CFLAGS=-fno-profile-use -fno-lto -fno-pie -g0 -march=rv64gcv -mabi=lp64d -mtune=spacemit-x60" \
+    "RVV_CFLAGS=-fno-profile-use -fno-lto -fno-pie -g0 -march=rv64gcv -mabi=lp64d -mtune=$riscv_tune" \
     "OPT=$use_opt" redis-server
 
 if [[ ${DEPLOY_FINAL:-0} == 1 ]]; then
