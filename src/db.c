@@ -3347,6 +3347,13 @@ ChannelSpecs commands_with_channels[] = {
 /* Returns 1 if the command may access any channels matched by the flags
  * argument. */
 int doesCommandHaveChannelsWithFlags(struct redisCommand *cmd, int flags) {
+    /* Built-in commands with channel arguments are all marked PUBSUB. Avoid
+     * walking the small procedure table for the overwhelmingly common key and
+     * administrative commands. Modules use their separate declaration bit. */
+    if (!(cmd->flags & (CMD_PUBSUB | CMD_MODULE_GETCHANNELS))) {
+        return 0;
+    }
+
     /* If a module declares get channels, we are just going to assume
      * has channels. This API is allowed to return false positives. */
     if (cmd->flags & CMD_MODULE_GETCHANNELS) {

@@ -4356,10 +4356,21 @@ void preprocessCommand(client *c, pendingCommand *pcmd) {
     else
         second_last_cmd = c->lastcmd;
 
-    if (isCommandReusable(last_cmd, pcmd->argv[0])) {
-        pcmd->cmd = last_cmd;
-    } else if (isCommandReusable(second_last_cmd, pcmd->argv[0])) {
-        pcmd->cmd = second_last_cmd;
+    /* Once a parsed pipeline has at least two entries, the command two places
+     * back is as likely as the immediately preceding command for homogeneous
+     * traffic and more likely for common alternating traffic. Probe it first
+     * to avoid an almost-always-failing comparison in the latter case. */
+    struct redisCommand *first_candidate = last_cmd;
+    struct redisCommand *second_candidate = second_last_cmd;
+    if (pcmd->prev && pcmd->prev->prev) {
+        first_candidate = second_last_cmd;
+        second_candidate = last_cmd;
+    }
+
+    if (isCommandReusable(first_candidate, pcmd->argv[0])) {
+        pcmd->cmd = first_candidate;
+    } else if (isCommandReusable(second_candidate, pcmd->argv[0])) {
+        pcmd->cmd = second_candidate;
     } else {
         pcmd->cmd = lookupCommand(pcmd->argv, pcmd->argc);
     }
