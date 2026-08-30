@@ -3158,26 +3158,43 @@ int processInlineBuffer(client *c, pendingCommand *pcmd) {
  * integers. Handle that canonical form without the overflow-heavy generic
  * converter, and retain string2ll() as the exact compatibility fallback for
  * negative, long, malformed, and non-canonical inputs. */
-static inline int parseRespLength(const char *s, size_t len, long long *value) {
-    if (likely(len > 0 && len <= 9)) {
-        if (len == 1 && s[0] == '0') {
-            *value = 0;
-            return 1;
-        }
-        if (s[0] >= '1' && s[0] <= '9') {
-            unsigned long long result = s[0] - '0';
-            size_t i;
-            for (i = 1; i < len; i++) {
-                unsigned int digit = (unsigned char)s[i] - '0';
-                if (unlikely(digit > 9))
-                    return string2ll(s, len, value);
-                result = result * 10 + digit;
+static inline char *parseRespLengthLine(const char *s, const char *end,
+                                       long long *value, int *ok) {
+    const char *p = s;
+
+    if (likely(p < end)) {
+        unsigned int digit = (unsigned char)*p - '0';
+        if (digit == 0) {
+            if (++p < end && *p == '\r') {
+                *value = 0;
+                *ok = 1;
+                return (char *)p;
             }
-            *value = result;
-            return 1;
+        } else if (digit <= 9) {
+            unsigned long long result = digit;
+            size_t digits = 1;
+            while (++p < end) {
+                if (*p == '\r') {
+                    *value = result;
+                    *ok = 1;
+                    return (char *)p;
+                }
+                digit = (unsigned char)*p - '0';
+                if (unlikely(digit > 9 || digits == 9))
+                    break;
+                result = result * 10 + digit;
+                digits++;
+            }
         }
     }
-    return string2ll(s, len, value);
+
+    /* Preserve the exact legacy behavior for negative, long, malformed and
+     * non-canonical lengths. This path also handles fragmented input where
+     * the terminating CR has not arrived yet. */
+    char *newline = (char *)redisRvvMemchr(s, '\r', end - s);
+    if (newline != NULL)
+        *ok = string2ll(s, newline - s, value);
+    return newline;
 }
 
 /* Helper function. Record protocol error details in server log,
@@ -3239,8 +3256,8 @@ static int processMultibulkBuffer(client *c, pendingCommand *pcmd) {
         serverAssertWithInfo(c,NULL,pcmd->argc == 0);
 
         /* Multi bulk length cannot be read without a \r\n */
-        newline = (char *)redisRvvMemchr(c->querybuf+c->qb_pos, '\r',
-                                        querybuf_len-c->qb_pos);
+        newline = parseRespLengthLine(c->querybuf+c->qb_pos+1,
+                                      c->querybuf+querybuf_len,&ll,&ok);
         if (newline == NULL) {
             if (querybuf_len-c->qb_pos > PROTO_INLINE_MAX_SIZE) {
                 pcmd->read_error = CLIENT_READ_TOO_BIG_MBULK_COUNT_STRING;
@@ -3256,8 +3273,6 @@ static int processMultibulkBuffer(client *c, pendingCommand *pcmd) {
          * so go ahead and find out the multi bulk length. */
         serverAssertWithInfo(c,NULL,c->querybuf[c->qb_pos] == '*');
         size_t multibulklen_slen = newline - (c->querybuf + 1 + c->qb_pos);
-        ok = parseRespLength(c->querybuf+1+c->qb_pos,
-                             newline-(c->querybuf+1+c->qb_pos),&ll);
         if (!ok || ll > INT_MAX) {
             pcmd->read_error = CLIENT_READ_INVALID_MULTIBUCK_LENGTH;
             return C_ERR;
@@ -3320,8 +3335,8 @@ static int processMultibulkBuffer(client *c, pendingCommand *pcmd) {
     while(c->multibulklen) {
         /* Read bulk length if unknown */
         if (c->bulklen == -1) {
-            newline = (char *)redisRvvMemchr(c->querybuf+c->qb_pos, '\r',
-                                            querybuf_len-c->qb_pos);
+            newline = parseRespLengthLine(c->querybuf+c->qb_pos+1,
+                                          c->querybuf+querybuf_len,&ll,&ok);
             if (newline == NULL) {
                 if (querybuf_len-c->qb_pos > PROTO_INLINE_MAX_SIZE) {
                     pcmd->read_error = CLIENT_READ_TOO_BIG_BUCK_COUNT_STRING;
@@ -3340,8 +3355,6 @@ static int processMultibulkBuffer(client *c, pendingCommand *pcmd) {
             }
 
             size_t bulklen_slen = newline - (c->querybuf + c->qb_pos + 1);
-            ok = parseRespLength(c->querybuf+c->qb_pos+1,
-                                 newline-(c->querybuf+c->qb_pos+1),&ll);
             if (!ok || ll < 0 ||
                 (!(c->flags & CLIENT_MASTER) && ll > server.proto_max_bulk_len)) {
                 pcmd->read_error = CLIENT_READ_INVALID_BUCK_LENGTH;
