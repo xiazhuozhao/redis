@@ -79,6 +79,11 @@ def main():
         sock.sendall(command("GET", "rvv:binary"))
         assert reader.read() == (b"$", binary)
 
+        sock.sendall(command("SET", "rvv:borrowed-set", "set-value") +
+                     command("GET", "rvv:borrowed-set"))
+        assert reader.read() == (b"+", b"OK")
+        assert reader.read() == (b"$", b"set-value")
+
         # A short GET key may be backed directly by the query buffer. Verify
         # that it remains correct when every protocol byte arrives separately.
         packet = command("GET", "rvv:binary")

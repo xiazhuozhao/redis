@@ -3197,6 +3197,28 @@ static inline char *parseRespLengthLine(const char *s, const char *end,
     return newline;
 }
 
+/* Return true when a standard SET's value is already complete in querybuf.
+ * In that case parsing cannot grow or rebase the buffer before the command is
+ * executed, so its preceding key can safely use query-buffer-backed storage. */
+static inline int canBorrowSetKey(client *c, size_t querybuf_len) {
+    size_t value_header_pos = c->qb_pos + c->bulklen + 2;
+    if (value_header_pos >= querybuf_len || c->querybuf[value_header_pos] != '$')
+        return 0;
+
+    long long value_len;
+    int ok;
+    char *newline = parseRespLengthLine(c->querybuf + value_header_pos + 1,
+                                        c->querybuf + querybuf_len,
+                                        &value_len, &ok);
+    if (newline == NULL || !ok || value_len < 0 || value_len >= PROTO_MBULK_BIG_ARG)
+        return 0;
+
+    size_t value_pos = newline - c->querybuf + 2;
+    if (value_pos > querybuf_len)
+        return 0;
+    return querybuf_len - value_pos >= (size_t)value_len + 2;
+}
+
 /* Helper function. Record protocol error details in server log,
  * and set the client as CLIENT_CLOSE_AFTER_REPLY and
  * CLIENT_PROTOCOL_ERROR. */
@@ -3457,8 +3479,11 @@ static int processMultibulkBuffer(client *c, pendingCommand *pcmd) {
                      (c->pending_cmds.tail->flags & PENDING_CMD_FLAG_BORROWED_KEY_SAFE)))
                 {
                     pcmd->flags |= PENDING_CMD_FLAG_BORROWED_KEY_SAFE;
-                    if (pcmd->argv[0] == shared.get && c->multibulklen == 1 &&
-                        c->bulklen <= 31)
+                    int borrow_key =
+                        (pcmd->argv[0] == shared.get && c->multibulklen == 1) ||
+                        (pcmd->argv[0] == shared.set && c->multibulklen == 2 &&
+                         canBorrowSetKey(c, querybuf_len));
+                    if (borrow_key && c->bulklen <= 31)
                     {
                         arg_data[-1] = SDS_TYPE_5 | (c->bulklen << SDS_TYPE_BITS);
                         arg_data[c->bulklen] = '\0';
