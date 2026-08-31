@@ -107,9 +107,18 @@ const char *replstateToString(int replstate);
  *   This preserves simplicity on the check and accounts for the majority of the use cases.
  * - Its full name matches the provided command argument. */
 static inline int isCommandReusable(struct redisCommand *cmd, robj *commandArg) {
-    return cmd != NULL &&
-           cmd->subcommands_dict == NULL &&
-           strcasecmp(cmd->fullname, commandArg->ptr) == 0;
+    if (likely(cmd != NULL)) {
+        /* The RESP parser canonicalizes the dominant GET and SET command
+         * objects. Match those by identity and command procedure instead of
+         * rescanning the same three bytes for every request. */
+        if (commandArg == shared.get)
+            return cmd->proc == getCommand;
+        if (commandArg == shared.set)
+            return cmd->proc == setCommand;
+        return cmd->subcommands_dict == NULL &&
+               strcasecmp(cmd->fullname, commandArg->ptr) == 0;
+    }
+    return 0;
 }
 
 /* This macro tells if we are in the context of loading an AOF. */
