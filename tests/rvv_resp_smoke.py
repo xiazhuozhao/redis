@@ -79,6 +79,34 @@ def main():
         sock.sendall(command("GET", "rvv:binary"))
         assert reader.read() == (b"$", binary)
 
+        # A short GET key may be backed directly by the query buffer. Verify
+        # that it remains correct when every protocol byte arrives separately.
+        packet = command("GET", "rvv:binary")
+        for byte in packet:
+            sock.sendall(bytes((byte,)))
+        assert reader.read() == (b"$", binary)
+
+        long_key = "rvv:key:" + "x" * 80
+        sock.sendall(command("SET", long_key, "long-key-value") +
+                     command("GET", long_key))
+        assert reader.read() == (b"+", b"OK")
+        assert reader.read() == (b"$", b"long-key-value")
+
+        # A parsed pipeline may cross into transaction mode. Command arguments
+        # queued by MULTI must retain normal ownership until EXEC.
+        sock.sendall(command("MULTI") +
+                     command("SET", "rvv:transaction", "transaction-value") +
+                     command("GET", "rvv:transaction") +
+                     command("EXEC"))
+        assert reader.read() == (b"+", b"OK")
+        assert reader.read() == (b"+", b"QUEUED")
+        assert reader.read() == (b"+", b"QUEUED")
+        assert reader.read() == (b"*", [
+            (b"+", b"OK"), (b"$", b"transaction-value")])
+
+        sock.sendall(command("GET", "rvv:binary", "extra-argument"))
+        assert reader.read()[0] == b"-"
+
         sock.sendall(command("DEL", "rvv:counter") + command("INCR", "rvv:counter"))
         assert reader.read()[0] == b":"
         assert reader.read() == (b":", 1)
@@ -117,7 +145,7 @@ def main():
         assert reader.read()[0] == b":"
         assert reader.read()[0] == b"~"
 
-    print("RESP2/RESP3, binary bulk, fragmentation, and pipeline checks passed")
+    print("RESP2/RESP3, binary bulk, fragmentation, transactions, and pipeline checks passed")
 
 
 if __name__ == "__main__":

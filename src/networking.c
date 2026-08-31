@@ -3432,7 +3432,7 @@ static int processMultibulkBuffer(client *c, pendingCommand *pcmd) {
                 querybuf_len = sdslen(c->querybuf); /* Update cached length */
             } else {
                 robj *arg = NULL;
-                const char *arg_data = c->querybuf + c->qb_pos;
+                char *arg_data = c->querybuf + c->qb_pos;
 
                 /* GET and SET dominate common string workloads. When the
                  * command name already has Redis' canonical spelling, reuse
@@ -3443,6 +3443,28 @@ static int processMultibulkBuffer(client *c, pendingCommand *pcmd) {
                         arg = shared.get;
                     else if (memcmp(arg_data, "SET", 3) == 0)
                         arg = shared.set;
+                }
+
+                /* A main-thread GET/SET is executed before its query buffer
+                 * can be trimmed. For small keys, reuse the RESP payload as
+                 * an SDS_TYPE_5 string and avoid allocating and copying a
+                 * throwaway key object. Keep this disabled across commands
+                 * that can change execution semantics (notably MULTI). */
+                if (pcmd->argc == 1 && c->running_tid == IOTHREAD_MAIN_THREAD_ID &&
+                    !(c->flags & CLIENT_MULTI) &&
+                    (pcmd->argv[0] == shared.get || pcmd->argv[0] == shared.set) &&
+                    (c->pending_cmds.tail == NULL ||
+                     (c->pending_cmds.tail->flags & PENDING_CMD_FLAG_BORROWED_KEY_SAFE)))
+                {
+                    pcmd->flags |= PENDING_CMD_FLAG_BORROWED_KEY_SAFE;
+                    if (pcmd->argv[0] == shared.get && c->multibulklen == 1 &&
+                        c->bulklen <= 31)
+                    {
+                        arg_data[-1] = SDS_TYPE_5 | (c->bulklen << SDS_TYPE_BITS);
+                        arg_data[c->bulklen] = '\0';
+                        initStaticStringObject(pcmd->borrowed_key, arg_data);
+                        arg = &pcmd->borrowed_key;
+                    }
                 }
                 if (arg == NULL)
                     arg = createStringObject(arg_data,c->bulklen);
@@ -5790,8 +5812,10 @@ static inline void reclaimPendingCommand(client *c, pendingCommand *pcmd) {
             }
 
             /* Clean up command resources before adding to pool */
-            for (int j = 0; j < pcmd->argc; j++)
-                decrRefCount(pcmd->argv[j]);
+            for (int j = 0; j < pcmd->argc; j++) {
+                if (pcmd->argv[j] != &pcmd->borrowed_key)
+                    decrRefCount(pcmd->argv[j]);
+            }
 
             getKeysFreeResult(&pcmd->keys_result);
 
@@ -5855,7 +5879,8 @@ void freePendingCommand(client *c, pendingCommand *pcmd) {
         for (int j = 0; j < pcmd->argc; j++) {
             robj *o = pcmd->argv[j];
             if (!o) continue; /* argv[j] may be NULL when called from reclaimPendingCommand */
-            decrRefCount(o);
+            if (o != &pcmd->borrowed_key)
+                decrRefCount(o);
         }
 
         zfree(pcmd->argv);

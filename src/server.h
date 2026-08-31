@@ -2660,6 +2660,7 @@ enum {
     PENDING_CMD_FLAG_PREPROCESSED = 1 << 1,   /* This command has passed pre-processing */
     PENDING_CMD_KEYS_RESULT_VALID = 1 << 2,   /* Command's keys_result is valid and cached */
     PENDING_CMD_KEYS_PREFETCHED = 1 << 3,     /* Command's keys were prefetched by the cross-command batch */
+    PENDING_CMD_FLAG_BORROWED_KEY_SAFE = 1 << 4, /* Parsed prefix allows query-buffer key borrowing */
 };
 
 /* Parser state and parse result of a command from a client's input buffer. */
@@ -2676,6 +2677,8 @@ struct pendingCommand {
     int slot;         /* The slot the command is executing against. Set to INVALID_CLUSTER_SLOT
                        * if no slot is being used or if the command has a cross slot error */
     uint8_t read_error;
+
+    robj borrowed_key;        /* Temporary small key backed by the query buffer. */
 
     struct pendingCommand *next;
     struct pendingCommand *prev;
