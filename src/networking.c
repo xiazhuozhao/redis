@@ -3219,6 +3219,33 @@ static inline int canBorrowSetKey(client *c, size_t querybuf_len) {
     return querybuf_len - value_pos >= (size_t)value_len + 2;
 }
 
+/* Keep the pipeline-only value borrowing path out of the common parser body:
+ * single-command traffic should pay only for the pending-tail test below. */
+static __attribute__((noinline)) robj *tryBorrowSetValue(client *c,
+                                                         pendingCommand *pcmd,
+                                                         char *arg_data) {
+    if (pcmd->argc != 2 || pcmd->argv[0] != shared.set ||
+        c->multibulklen != 1 || c->bulklen > UINT8_MAX ||
+        c->running_tid != IOTHREAD_MAIN_THREAD_ID ||
+        (c->flags & CLIENT_MULTI) ||
+        !(pcmd->flags & PENDING_CMD_FLAG_BORROWED_KEY_SAFE))
+        return NULL;
+
+    /* The value is the final argument, so the query buffer is stable until
+     * SET executes. The bulk length terminator provides the three bytes
+     * needed for an SDS_TYPE_8 header, avoiding a temporary allocation. */
+    arg_data[-3] = c->bulklen;
+    arg_data[-2] = c->bulklen;
+    arg_data[-1] = SDS_TYPE_8;
+    arg_data[c->bulklen] = '\0';
+    robj *borrowed_value = &pcmd->keys_result.borrowed.value;
+    initStaticStringObject(pcmd->keys_result.borrowed.value, arg_data);
+    borrowed_value->encoding = OBJ_ENCODING_EMBSTR;
+    borrowed_value->lru = 0;
+    pcmd->flags |= PENDING_CMD_FLAG_BORROWED_VALUE;
+    return borrowed_value;
+}
+
 /* Helper function. Record protocol error details in server log,
  * and set the client as CLIENT_CLOSE_AFTER_REPLY and
  * CLIENT_PROTOCOL_ERROR. */
@@ -3491,6 +3518,8 @@ static int processMultibulkBuffer(client *c, pendingCommand *pcmd) {
                         arg = &pcmd->borrowed_key;
                     }
                 }
+                if (arg == NULL && unlikely(c->pending_cmds.tail != NULL))
+                    arg = tryBorrowSetValue(c, pcmd, arg_data);
                 if (arg == NULL)
                     arg = createStringObject(arg_data,c->bulklen);
                 (pcmd->argv)[(pcmd->argc)++] = arg;
@@ -5838,7 +5867,9 @@ static inline void reclaimPendingCommand(client *c, pendingCommand *pcmd) {
 
             /* Clean up command resources before adding to pool */
             for (int j = 0; j < pcmd->argc; j++) {
-                if (pcmd->argv[j] != &pcmd->borrowed_key)
+                if (pcmd->argv[j] != &pcmd->borrowed_key &&
+                    (!(pcmd->flags & PENDING_CMD_FLAG_BORROWED_VALUE) ||
+                     pcmd->argv[j] != &pcmd->keys_result.borrowed.value))
                     decrRefCount(pcmd->argv[j]);
             }
 
@@ -5904,7 +5935,9 @@ void freePendingCommand(client *c, pendingCommand *pcmd) {
         for (int j = 0; j < pcmd->argc; j++) {
             robj *o = pcmd->argv[j];
             if (!o) continue; /* argv[j] may be NULL when called from reclaimPendingCommand */
-            if (o != &pcmd->borrowed_key)
+            if (o != &pcmd->borrowed_key &&
+                (!(pcmd->flags & PENDING_CMD_FLAG_BORROWED_VALUE) ||
+                 o != &pcmd->keys_result.borrowed.value))
                 decrRefCount(o);
         }
 

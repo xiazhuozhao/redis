@@ -2599,10 +2599,17 @@ typedef struct {
 typedef struct {
     int numkeys;                                 /* Number of key indices return */
     int size;                                    /* Available array size */
-    keyReference keysbuf[MAX_KEYS_BUFFER];       /* Pre-allocated buffer, to save heap allocations */
+    union {
+        keyReference keysbuf[MAX_KEYS_BUFFER];   /* Pre-allocated buffer, to save heap allocations */
+        struct {
+            keyReference keys[MAX_KEYS_BUFFER - 2];
+            robj value;
+        } borrowed;
+    };
     keyReference *keys;                          /* Key indices array, points to keysbuf or heap */
 } getKeysResult;
-#define GETKEYS_RESULT_INIT { 0, MAX_KEYS_BUFFER, {{0}}, NULL }
+#define GETKEYS_RESULT_INIT { .numkeys = 0, .size = MAX_KEYS_BUFFER, \
+                              .keysbuf = {{0}}, .keys = NULL }
 
 /*-----------------------------------------------------------------------------
  * Hotkey tracking
@@ -2661,6 +2668,7 @@ enum {
     PENDING_CMD_KEYS_RESULT_VALID = 1 << 2,   /* Command's keys_result is valid and cached */
     PENDING_CMD_KEYS_PREFETCHED = 1 << 3,     /* Command's keys were prefetched by the cross-command batch */
     PENDING_CMD_FLAG_BORROWED_KEY_SAFE = 1 << 4, /* Parsed prefix allows query-buffer key borrowing */
+    PENDING_CMD_FLAG_BORROWED_VALUE = 1 << 5, /* keys_result tail stores a query-buffer-backed value */
 };
 
 /* Parser state and parse result of a command from a client's input buffer. */

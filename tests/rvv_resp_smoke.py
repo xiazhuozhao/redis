@@ -79,8 +79,10 @@ def main():
         sock.sendall(command("GET", "rvv:binary"))
         assert reader.read() == (b"$", binary)
 
-        sock.sendall(command("SET", "rvv:borrowed-set", "set-value") +
+        sock.sendall(command("GET", "rvv:borrow-prefix") +
+                     command("SET", "rvv:borrowed-set", "set-value") +
                      command("GET", "rvv:borrowed-set"))
+        assert reader.read() == (b"$", None)
         assert reader.read() == (b"+", b"OK")
         assert reader.read() == (b"$", b"set-value")
 

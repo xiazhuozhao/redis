@@ -4390,7 +4390,13 @@ void preprocessCommand(client *c, pendingCommand *pcmd) {
         return;
     }
 
-    pcmd->keys_result = (getKeysResult)GETKEYS_RESULT_INIT;
+    if (pcmd->flags & PENDING_CMD_FLAG_BORROWED_VALUE) {
+        pcmd->keys_result.numkeys = 0;
+        pcmd->keys_result.size = MAX_KEYS_BUFFER - 2;
+        pcmd->keys_result.keys = NULL;
+    } else {
+        pcmd->keys_result = (getKeysResult)GETKEYS_RESULT_INIT;
+    }
     int num_keys = extractKeysAndSlot(pcmd->cmd, pcmd->argv, pcmd->argc,
                                       &pcmd->keys_result, &pcmd->slot);
     if (num_keys < 0) {

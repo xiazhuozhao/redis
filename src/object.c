@@ -324,7 +324,8 @@ kvobj *kvobjSet(sds key, robj *val, uint32_t keyMetaBits) {
     if (val->metabits & KEY_META_MASK_MODULES)
         keyMetaTransition((kvobj *) val, kv);
     
-    decrRefCount(val);
+    if (val->refcount != OBJ_STATIC_REFCOUNT)
+        decrRefCount(val);
     return kv;
 }
 
