@@ -3431,8 +3431,22 @@ static int processMultibulkBuffer(client *c, pendingCommand *pcmd) {
                 sdsclear(c->querybuf);
                 querybuf_len = sdslen(c->querybuf); /* Update cached length */
             } else {
-                (pcmd->argv)[(pcmd->argc)++] =
-                    createStringObject(c->querybuf+c->qb_pos,c->bulklen);
+                robj *arg = NULL;
+                const char *arg_data = c->querybuf + c->qb_pos;
+
+                /* GET and SET dominate common string workloads. When the
+                 * command name already has Redis' canonical spelling, reuse
+                 * the immutable server object instead of allocating an
+                 * identical embedded string only to free it after dispatch. */
+                if (pcmd->argc == 0 && c->bulklen == 3) {
+                    if (memcmp(arg_data, "GET", 3) == 0)
+                        arg = shared.get;
+                    else if (memcmp(arg_data, "SET", 3) == 0)
+                        arg = shared.set;
+                }
+                if (arg == NULL)
+                    arg = createStringObject(arg_data,c->bulklen);
+                (pcmd->argv)[(pcmd->argc)++] = arg;
                 pcmd->argv_len_sum += c->bulklen;
                 c->all_argv_len_sum += c->bulklen;
                 c->qb_pos += c->bulklen+2;

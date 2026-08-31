@@ -2287,7 +2287,8 @@ void createSharedObjects(void) {
     shared.pexpireat = createStringObject("PEXPIREAT",9);
     shared.pexpire = createStringObject("PEXPIRE",7);
     shared.persist = createStringObject("PERSIST",7);
-    shared.set = createStringObject("SET",3);
+    shared.get = makeObjectShared(createStringObject("GET",3));
+    shared.set = makeObjectShared(createStringObject("SET",3));
     shared.eval = createStringObject("EVAL",4);
     shared.hpexpireat = createStringObject("HPEXPIREAT",10);
     shared.hpersist = createStringObject("HPERSIST",8);
