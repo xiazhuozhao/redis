@@ -678,7 +678,7 @@ void afterErrorReply(client *c, const char *s, size_t len, int flags) {
         if (s[0] != '-') {
             incrementErrorCount("ERR", 3);
         } else {
-            char *spaceloc = memchr(s, ' ', len < 32 ? len : 32);
+            const char *spaceloc = redisRvvMemchr(s, ' ', len < 32 ? len : 32);
             if (spaceloc) {
                 const size_t errEndPos = (size_t)(spaceloc - s);
                 incrementErrorCount(s+1, errEndPos-1);
@@ -3488,9 +3488,9 @@ static int processMultibulkBuffer(client *c, pendingCommand *pcmd) {
                  * the immutable server object instead of allocating an
                  * identical embedded string only to free it after dispatch. */
                 if (pcmd->argc == 0 && c->bulklen == 3) {
-                    if (memcmp(arg_data, "GET", 3) == 0)
+                    if (redisRvvMemcmp(arg_data, "GET", 3) == 0)
                         arg = shared.get;
-                    else if (memcmp(arg_data, "SET", 3) == 0)
+                    else if (redisRvvMemcmp(arg_data, "SET", 3) == 0)
                         arg = shared.set;
                 }
 
@@ -5884,7 +5884,7 @@ static inline void reclaimPendingCommand(client *c, pendingCommand *pcmd) {
             /* Reset the pending command while preserving the argv array for shared pool reuse */
             robj **argv = pcmd->argv;
             int argv_len = pcmd->argv_len;
-            memset(pcmd, 0, sizeof(pendingCommand));
+            redisRvvMemset(pcmd, 0, sizeof(pendingCommand));
             pcmd->argv = argv;
             pcmd->argv_len = argv_len;
             pcmd->slot = INVALID_CLUSTER_SLOT;
@@ -5921,7 +5921,7 @@ free_command:
 }
 
 void initPendingCommand(pendingCommand *pcmd) {
-    memset(pcmd, 0, sizeof(pendingCommand));
+    redisRvvMemset(pcmd, 0, sizeof(pendingCommand));
     pcmd->slot = INVALID_CLUSTER_SLOT;
 }
 

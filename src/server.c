@@ -474,7 +474,7 @@ int dictCStrKeyCompare(dictCmpCache *cache, const void *key1, const void *key2) 
     l1 = strlen((char*)key1);
     l2 = strlen((char*)key2);
     if (l1 != l2) return 0;
-    return memcmp(key1, key2, l1) == 0;
+    return redisRvvMemcmp(key1, key2, l1) == 0;
 }
 
 /* Dict case insensitive compare function for null terminated string */
@@ -550,8 +550,8 @@ static int kvstoreCanFreeDict(kvstore *kvs, int didx) {
 
 static void kvstoreOnEmpty(kvstore *kvs) {
     kvstoreMetadata *meta = kvstoreGetMetadata(kvs);
-    memset(&meta->keysizes_hist, 0, sizeof(meta->keysizes_hist));
-    memset(&meta->allocsizes_hist, 0, sizeof(meta->allocsizes_hist));
+    redisRvvMemset(&meta->keysizes_hist, 0, sizeof(meta->keysizes_hist));
+    redisRvvMemset(&meta->allocsizes_hist, 0, sizeof(meta->allocsizes_hist));
 }
 
 static void kvstoreOnDictEmpty(kvstore *kvs, int didx) {
@@ -1017,7 +1017,7 @@ int clientsCronResizeOutputBuffer(client *c, mstime_t now_ms) {
     if (new_buffer_size) {
         oldbuf = c->buf;
         c->buf = zmalloc_usable(new_buffer_size, &c->buf_usable_size);
-        memcpy(c->buf,oldbuf,c->bufpos);
+        redisRvvMemcpy(c->buf,oldbuf,c->bufpos);
         zfree(oldbuf);
     }
     return 0;
@@ -2397,7 +2397,7 @@ void initServerConfig(void) {
     server.bindaddr_count = CONFIG_DEFAULT_BINDADDR_COUNT;
     for (j = 0; j < CONFIG_DEFAULT_BINDADDR_COUNT; j++)
         server.bindaddr[j] = zstrdup(default_bindaddr[j]);
-    memset(server.listeners, 0x00, sizeof(server.listeners));
+    redisRvvMemset(server.listeners, 0x00, sizeof(server.listeners));
     server.active_expire_enabled = 1;
     server.allow_access_expired = 0;
     server.allow_access_trimmed = 0;
@@ -2426,7 +2426,7 @@ void initServerConfig(void) {
     server.active_defrag_configuration_changed = 0;
     server.notify_keyspace_events = 0;
     server.blocked_clients = 0;
-    memset(server.blocked_clients_by_type,0,
+    redisRvvMemset(server.blocked_clients_by_type,0,
            sizeof(server.blocked_clients_by_type));
     server.shutdown_asap = 0;
     server.crashing = 0;
@@ -2915,7 +2915,7 @@ void resetServerStats(void) {
         server.inst_metric[j].idx = 0;
         server.inst_metric[j].last_sample_base = 0;
         server.inst_metric[j].last_sample_value = 0;
-        memset(server.inst_metric[j].samples,0,
+        redisRvvMemset(server.inst_metric[j].samples,0,
             sizeof(server.inst_metric[j].samples));
     }
     server.stat_aof_rewrites = 0;
@@ -2940,7 +2940,7 @@ void resetServerStats(void) {
     atomicSet(server.stat_total_client_process_input_buff_events, 0);
     server.stat_eventloop_cycles_with_clients_input_buff_processing = 0;
     stat_prev_total_client_process_input_buff_events = 0;
-    memset(server.duration_stats, 0, sizeof(durationStats) * EL_DURATION_TYPE_NUM);
+    redisRvvMemset(server.duration_stats, 0, sizeof(durationStats) * EL_DURATION_TYPE_NUM);
     server.el_cmd_cnt_max = 0;
     server.stat_slowlog_count = 0;
     server.stat_slowlog_time_us_sum = 0;
@@ -3001,7 +3001,7 @@ void initServer(void) {
     server.clients_waiting_acks = listCreate();
     server.get_ack_from_slaves = 0;
     server.paused_actions = 0;
-    memset(server.client_pause_per_purpose, 0,
+    redisRvvMemset(server.client_pause_per_purpose, 0,
            sizeof(server.client_pause_per_purpose));
     server.postponed_clients = listCreate();
     server.events_processed_while_blocked = 0;
@@ -3127,7 +3127,7 @@ void initServer(void) {
     server.aof_last_write_errno = 0;
     server.repl_good_slaves_count = 0;
     server.last_sig_received = 0;
-    memset(server.io_threads_clients_num, 0, sizeof(server.io_threads_clients_num));
+    redisRvvMemset(server.io_threads_clients_num, 0, sizeof(server.io_threads_clients_num));
     atomicSetWithSync(server.running, 0);
     server.accum_call_count_since_ustime = 0;
     server.monotonic_us_when_ustime = 0;
@@ -3311,7 +3311,7 @@ void InitServerLast(void) {
  * and one should use the new key specs scheme.
  */
 void populateCommandLegacyRangeSpec(struct redisCommand *c) {
-    memset(&c->legacy_range_key_spec, 0, sizeof(c->legacy_range_key_spec));
+    redisRvvMemset(&c->legacy_range_key_spec, 0, sizeof(c->legacy_range_key_spec));
 
     /* Set the movablekeys flag if we have a GETKEYS flag for modules.
      * Note that for native redis commands, we always have keyspecs,
@@ -6097,7 +6097,7 @@ const char *getSafeInfoString(const char *s, size_t len, char **tmp) {
     if (mempbrk(s, len, unsafe_info_chars,sizeof(unsafe_info_chars)-1)
         == NULL) return s;
     char *new = *tmp = zmalloc(len + 1);
-    memcpy(new, s, len);
+    redisRvvMemcpy(new, s, len);
     new[len] = '\0';
     return memmapchars(new, len, unsafe_info_chars, unsafe_info_chars_substs,
                        sizeof(unsafe_info_chars)-1);
@@ -7689,7 +7689,7 @@ void loadDataFromDisk(void) {
             {
                 rsi_is_valid = 1;
                 if (!iAmMaster()) {
-                    memcpy(server.replid,rsi.repl_id,sizeof(server.replid));
+                    redisRvvMemcpy(server.replid,rsi.repl_id,sizeof(server.replid));
                     server.master_repl_offset = rsi.repl_offset;
                     /* If this is a replica, create a cached master from this
                      * information, in order to allow partial resynchronizations
@@ -7700,7 +7700,7 @@ void loadDataFromDisk(void) {
                     /* If this is a master, we can save the replication info
                      * as secondary ID and offset, in order to allow replicas
                      * to partial resynchronizations with masters. */
-                    memcpy(server.replid2,rsi.repl_id,sizeof(server.replid));
+                    redisRvvMemcpy(server.replid2,rsi.repl_id,sizeof(server.replid));
                     server.second_replid_offset = rsi.repl_offset+1;
                     /* Rebase master_repl_offset from rsi.repl_offset. */
                     server.master_repl_offset += rsi.repl_offset;

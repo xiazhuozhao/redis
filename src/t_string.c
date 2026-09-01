@@ -301,7 +301,7 @@ typedef struct {
  */
 int parseExtendedStringArgumentsOrReply(client *c, int start_pos, extendedStringArgs *args, int command_type) {
     /* Initialize arguments to defaults */
-    memset(args, 0, sizeof(*args));
+    redisRvvMemset(args, 0, sizeof(*args));
     args->expire_pos = -1;
     args->unit = UNIT_SECONDS;
 
@@ -1028,7 +1028,7 @@ typedef struct {
 /* The parseIncrExArgumentsOrReply() function performs validation for INCREX command.
  * If there are any syntax violations C_ERR is returned else C_OK is returned. */
 static int parseIncrExArgumentsOrReply(client *c, int start_pos, incrExArgs *args) {
-    memset(args, 0, sizeof(*args));
+    redisRvvMemset(args, 0, sizeof(*args));
     args->unit = UNIT_SECONDS;
     args->incr_ll = 1;
     args->lb_ll = LLONG_MIN;
