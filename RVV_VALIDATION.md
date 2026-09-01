@@ -47,6 +47,21 @@ utils/build-rvv-pgo.sh
 
 脚本先交叉编译插桩版本，在目标机运行 RESP 冒烟与代表性 memtier 训练负载，再取回 profile 并生成最终二进制。默认输出为 `src/redis-server`。标量对照使用同一提交、编译器、`-O3` 与 `generic-ooo` 调优，并保持 `-fno-tree-vectorize`、`MALLOC=libc` 和 `BUILD_TLS=no`，但关闭 `BUILD_RVV`。
 
+## 安装与部署
+
+验证不需要执行系统级 `make install`。将服务端、客户端和 benchmark 复制到普通用户数据目录，并在运行前核对产物：
+
+```sh
+mkdir -p stage/bin
+cp src/redis-server src/redis-cli src/redis-benchmark stage/bin/
+sha256sum stage/bin/*
+readelf -h stage/bin/redis-server
+readelf -A stage/bin/redis-server
+scp -r stage muse-pi-pro:/path/to/validation/
+```
+
+PGO 构建还应保存训练前插桩二进制、最终二进制和 profile 的 SHA-256。目标机只需兼容的 glibc；本配置使用 `MALLOC=libc`、关闭 TLS，不依赖目标机 jemalloc 或 OpenSSL 安装。
+
 ## RVV 原语正确性
 
 独立测试覆盖 `memcpy`、`memset`、`memchr`、`memcmp`、公共前缀和不同对齐/尾部长度：
@@ -124,6 +139,22 @@ RVV 原语按运行时 `vl` 分块，不假定 VLEN=256，也不使用 SpacemiT 
 ## 向量化接入范围
 
 RVV 原语接入 RESP 行结束符与长度扫描、SDS/对象字符串复制与比较、命令和 Key 公共前缀、网络回复缓冲、RIO/RDB 数据搬运、RDB 校验缓冲以及 LZF 压缩匹配和无重叠解压复制。短于调度阈值的操作保留标量/libc 路径，属于按长度运行时分发。覆盖率应以这些题面核心函数是否具有可执行 RVV 路径统计，不把 PGO、LTO 或编译器自动向量化计入 RVV 覆盖。
+
+按源码中的直接调用点复核，本分支共有 34 个 `redisRvv*` 接入点，分布如下：
+
+| 已接入热点域 | 文件与直接接入点 | 状态 |
+|---|---:|---:|
+| RESP/网络缓冲 | `networking.c`：10 | 已接入 |
+| 字符串与 Key 比较/搬运 | `sds.c`：12，`server.c`：2，`t_string.c`：1 | 已接入 |
+| RDB/RIO/LZF 持久化与压缩 | `rdb.c`：3，`rio.c`：3，`lzf_c.c`/`lzf_d.c`：3 | 已接入 |
+| 合计 | 8 个生产文件，34 个直接接入点 | 三类均有接入 |
+
+```sh
+rg -n 'redisRvv[A-Za-z0-9_]+' src \
+  --glob '!rvv_optim.c' --glob '!rvv_optim.h'
+```
+
+这里的三类是按当前直接接入点归纳的热点域，34 是静态直接调用点；二者都不是题面核心函数的固定分母，不等同于动态指令占比，也不自动证明“函数向量化占比 ≥70%”。若以函数为分母验收，应先冻结题面所称“现有数据库内核、字符串核心以及协议解析函数”的函数清单，再逐项标记直接 RVV、经包装器间接 RVV 或纯标量，按函数数计算百分比。
 
 ## AI 使用说明
 
